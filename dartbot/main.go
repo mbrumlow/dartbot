@@ -56,6 +56,9 @@ func main() {
 
 func runHttpTank(t *Tank, p *gpio.LedDriver, c *gpio.LedDriver) {
 
+	p.Off()
+	c.Off()
+
 	http.Handle("/control", websocket.Handler(func(ws *websocket.Conn) {
 		Control(ws, t, p, c)
 	}))
@@ -86,12 +89,14 @@ func Control(ws *websocket.Conn, t *Tank, p *gpio.LedDriver, c *gpio.LedDriver) 
 	if getControl() {
 		defer giveControl()
 	} else {
-		// TODO ERROR
+		log.Printf("Client control denied: %v\n", ws)
 		return
 	}
 
-	c.Toggle()
-	defer c.Toggle()
+	log.Printf("Client taking contro: %v\n", ws)
+
+	c.On()
+	defer c.Off()
 	defer t.Stop()
 
 	for {
@@ -102,14 +107,16 @@ func Control(ws *websocket.Conn, t *Tank, p *gpio.LedDriver, c *gpio.LedDriver) 
 			break
 		}
 
+		event(ws, t, p, ev)
+
 	}
 
 }
 
 func event(ws *websocket.Conn, t *Tank, p *gpio.LedDriver, ev JsonEvent) {
 
-	p.Toggle()
-	defer p.Toggle()
+	p.On()
+	defer p.Off()
 
 	switch ev.Type {
 	case TrackPower:

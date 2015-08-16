@@ -1,0 +1,52 @@
+<html> 
+<head>
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <script src="control.js"></script>
+</head> 
+
+<body onload="load()" >
+
+
+    <div class="tankControl" style="background: grey;"  >
+        
+        <div style="widht: 100%;" > 
+            <div class="left"> 
+                <button type="button"  onclick="rotateLeft()" >&larr;</button>
+            </div>
+            
+            <div class="left"> 
+                <button type="button" onclick="fullForward()">&uarr;</button>
+            </div>
+        
+            <div class="left" > 
+                <button type="button" onclick="rotateRight()"  >&rarr;</button>
+            </div> 
+        </div> 
+        <hr>  
+        <div> 
+            <div class="leftSide" > 
+                <input id="powerLeft" class="power"  type="range" id="rangeLeft" min="0" max="180" step="1" value="90" oninput="updatePowerLinked(this)" />
+            </div>
+           
+            <div class="leftMiddle">
+                <br style="clear: left;" />
+                <button id="linkedButton" type="button" onclick="toggleLinked()" >&hArr;</button>
+                <p> </p>
+                <button type="button" onclick="fullStop()" >&oS;</button>
+            </div> 
+
+            <div  class="leftSide" >
+                <input id="powerRight" class="power" type="range" id="rangeRight" min="0" max="180" step="1" value="90" oninput="updatePowerLinked(this)" />
+            </div>
+        </div> 
+       
+        <div> 
+            <div class="leftSide" ><p id="leftPower">0</p></div> 
+            <div class="leftMiddle" ><p></p></div> 
+            <div  class="leftSide" ><p id="rightPower">0</p></div> 
+        </div> 
+
+    </div>
+
+</body>  
+</html> 
