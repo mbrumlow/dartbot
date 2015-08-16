@@ -20,9 +20,14 @@ func NewTank(pinl, pinr *gpio.DirectPinDriver) *Tank {
 
 	t := &Tank{pinl: pinl, pinr: pinr}
 
-	t.TrackPower(Power{90, 90})
+	t.Stop()
 
 	return t
+}
+
+func (t *Tank) Stop() {
+	// TODO - see if ther is a way (there likely is) to stop sending PWM
+	t.TrackPower(Power{90, 90})
 }
 
 func (t *Tank) TrackPower(p Power) {
