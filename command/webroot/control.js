@@ -5,6 +5,7 @@ function load() {
     fullStop();   
 }
 
+
 function post( address, message ) {
     var method = "POST";
     var xhr = new XMLHttpRequest();
