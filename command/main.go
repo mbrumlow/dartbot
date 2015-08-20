@@ -153,7 +153,7 @@ func startHttp(events chan JsonEvent) {
 	http.Handle("/video", websocket.Handler(clientVideoHandler))
 	http.Handle("/events", websocket.Handler(clientEventHandler))
 
-	fs := http.FileServer(http.Dir("webroot2"))
+	fs := http.FileServer(http.Dir("webroot"))
 	http.Handle("/", http.StripPrefix("/", fs))
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
