@@ -5,71 +5,72 @@
     <script src="control.js"></script>
 </head> 
 
-<body onload="load()" >
+<body>
 
-
-    <div class="tankControl" style="float:left; background: grey; height: 720px;"  >
-        
-        <div style="widht: 100%;" > 
-            <div class="left"> 
-                <button type="button"  onclick="rotateLeft()" >&larr;</button>
-            </div>
-            
-            <div class="left"> 
-                <button type="button" onclick="fullForward()">&uarr;</button>
-            </div>
-        
-            <div class="left" > 
-                <button type="button" onclick="rotateRight()"  >&rarr;</button>
-            </div> 
-        </div> 
-        <hr>  
-        <div> 
-            <div class="leftSide" > 
-                <input id="powerLeft" class="power"  type="range" id="rangeLeft" min="0" max="180" step="1" value="90" oninput="updatePowerLinked(this)" />
-            </div>
-           
-            <div class="leftMiddle">
-                <br style="clear: left;" />
-                <button id="linkedButton" type="button" onclick="toggleLinked()" >&hArr;</button>
-                <p> </p>
-                <button type="button" onclick="fullStop()" >&oS;</button>
-            </div> 
-
-            <div  class="leftSide" >
-                <input id="powerRight" class="power" type="range" id="rangeRight" min="0" max="180" step="1" value="90" oninput="updatePowerLinked(this)" />
-            </div>
-        </div> 
-       
-        <div> 
-            <div class="leftSide" ><p id="leftPower">0</p></div> 
-            <div class="leftMiddle" ><p></p></div> 
-            <div  class="leftSide" ><p id="rightPower">0</p></div> 
-        </div> 
+    <div id="coverDiv" class="chatName"></div>
+ 
+    <div id="usernameDiv" class="userNameInput" >
+    <h3>Enter Your Name</h3>
+    <form acton="" onsubmit="return setUser();"> 
+        <input id="nameInput" type="text" ></input><br> 
+        <input type="submit" style="visibility: hidden;" value="none"  />
+    </form> 
+    </div>
     
-        <hr> 
+
+    <div class="entireApp"> 
+    
+        <div class="mainWindow" > 
+            <div class="leftPanel">
+                <div style="width: 100%;">  
+                    <div class="absLeft button noselect" onclick="rotateLeft()">&larr;</div> 
+                    <div class="absLeft button noselect" onclick="fullForward()">&uarr;</div> 
+                    <div class="absLeft button noselect" onclick="rotateRight()">&rarr;</div>
+                </div> 
+                <div class="noselect">
+                    <div class="absLeftMiddle noselect"><input id="powerLeft" min="0" max="180" step="1" value="90" class="power" type="range" oninput="updatePowerLinked(this)"/></div> 
+                    <div class="absLeftMiddle noselect">
+                        <div class="button" onclick="fullReverse()">&darr;</div>
+                        <div class="button" onclick="fullStop()">&oS;</div>
+                        <div id="linkedButton" class="button" onclick="toggleLinked()">&hArr;</div>
+                    </div>
+                    <div class="absLeftMiddle noselect"><input id="powerRight" min="0" max="180" step="1" value="90" class="power" type="range" oninput="updatePowerLinked(this)"/></div> 
+                </div>
+                <div id="actionLog" class="actionLog" style="height: 260px; display: inline-block;" >
+                </div>
+            </div>
+        
+            <div class="rightPanel"> 
+    
+                <canvas id="videoCanvas" width="480" height="480">
+                    <p>
+                        Please use a browser that supports the Canvas Element, like
+                        <a href="http://www.google.com/chrome">Chrome</a>,
+                        <a href="http://www.mozilla.com/firefox/">Firefox</a>,
+                        <a href="http://www.apple.com/safari/">Safari</a> or Internet Explorer 10
+                    </p> 
+                </canvas>
+                <script type="text/javascript" src="jsmpg.js"></script>
+                <script type="text/javascript">
+                // Setup the WebSocket connection and start the player
+                var client = new WebSocket( "ws://" +window.location.host + "/video" );
+                var canvas = document.getElementById('videoCanvas');
+                var player = new jsmpeg(client, {canvas:canvas});
+                </script>
+            
+            </div> 
+        </div> 
+
+        <div class="chatWindow"> 
+            <div id="chatLog" class="chatText"> 
+            
+            </div> 
+            <div class="chatInput"> 
+                <textarea id="txtArea" class="textInput" onkeypress="onTextChange();"></textarea>  
+            </div> 
+        </div> 
+
     </div>
 
-    <div style="float: left;"> 
-        <p>  </p>   
-    </div> 
-
-    <div style="float: left; background: grey; wdith: 1280px; height: 720px;" > 
-    <canvas id="videoCanvas" width="1280" height="720">
-        <p>
-            Please use a browser that supports the Canvas Element, like
-            <a href="http://www.google.com/chrome">Chrome</a>,
-            <a href="http://www.mozilla.com/firefox/">Firefox</a>,
-            <a href="http://www.apple.com/safari/">Safari</a> or Internet Explorer 10
-        </p> 
-    </canvas>
-    <script type="text/javascript" src="jsmpg.js"></script>
-    <script type="text/javascript">
-        // Setup the WebSocket connection and start the player
-        var client = new WebSocket( "ws://" +window.location.host + "/video" );
-        var canvas = document.getElementById('videoCanvas');
-        var player = new jsmpeg(client, {canvas:canvas});
-    </script>
-    </div>
 </body>  
 </html> 

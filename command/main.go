@@ -11,8 +11,14 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"golang.org/x/net/websocket"
+)
+
+const (
+	maxVideo  = 200
+	maxEvents = 250
 )
 
 const (
@@ -21,6 +27,8 @@ const (
 	Video
 	StartVideo
 	EndVideo
+	ActionEvent
+	ChatEvent
 )
 
 type JsonEvent struct {
@@ -28,26 +36,33 @@ type JsonEvent struct {
 	Event string
 }
 
+type Action struct {
+	Time   string
+	Name   string
+	Action string
+}
+
 type Power struct {
 	Left  uint8
 	Right uint8
 }
 
-type videoClient struct {
-	WS   *websocket.Conn
-	done chan bool
+type Chat struct {
+	Name string
+	Text string
 }
 
-var clientMU sync.Mutex
-var clients = make(map[*videoClient]bool)
+var (
+	clientMu     sync.RWMutex
+	eventClients = make(map[chan JsonEvent]*websocket.Conn)
+	videoClients = make(map[chan []byte]*websocket.Conn)
+)
 
 var robothostport = flag.String("host", "", "host port of dartbot")
 
 func main() {
 
 	flag.Parse()
-
-	events := make(chan JsonEvent, 10)
 
 	if *robothostport == "" {
 		flag.PrintDefaults()
@@ -57,26 +72,48 @@ func main() {
 	url := fmt.Sprintf("ws://%v/control", *robothostport)
 	ref := fmt.Sprintf("http://%v/", *robothostport)
 
-	ws, err := websocket.Dial(url, "", ref)
-	if err != nil {
-		log.Fatal("Failed to connect to dartbot: %v\n", err.Error())
-	}
-
-	// TODO - reconnect in loop.
+	events := make(chan JsonEvent, 1000)
 
 	go startHttp(events)
-	go handleRobotEvents(ws)
 
 	for {
-		event := <-events
-		websocket.JSON.Send(ws, &event)
+
+		ws, err := websocket.Dial(url, "", ref)
+		if err != nil {
+			log.Printf("ERROR: Failed to connect to dartbot: %v\n", err.Error())
+			robotDownEvent()
+
+			// clean out peding events
+			for i := len(events); i > 0; i-- {
+				<-events
+			}
+
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// clean out peding events
+		for i := len(events); i > 0; i-- {
+			<-events
+		}
+
+		go handleRobotEvents(ws)
+
+		for {
+			event := <-events
+			if err := websocket.JSON.Send(ws, &event); err != nil {
+				log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
+				break
+			}
+			sendEventToClient(event)
+		}
+
 	}
 }
 
-var mu sync.Mutex
-var v *websocket.Conn = nil
-
 func handleRobotEvents(ws *websocket.Conn) {
+
+	defer ws.Close()
 
 	for {
 		var ev JsonEvent
@@ -105,119 +142,254 @@ func decodeVideo(s string) {
 	sendVideoToClients(decoded)
 }
 
-func sendVideoToClients(data []byte) {
-
-	var c = make(map[*videoClient]bool)
-
-	clientMU.Lock()
-	for k, v := range clients {
-		c[k] = v
-	}
-	clientMU.Unlock()
-
-	for v := range c {
-		if err := websocket.Message.Send(v.WS, data); err != nil {
-			log.Printf("ERROR: Failed to send video data client: %v.\n", err.Error())
-			removeClient(v)
-		}
-	}
-}
-
 func startHttp(events chan JsonEvent) {
 
 	http.HandleFunc("/power", func(w http.ResponseWriter, r *http.Request) {
 		powerHandler(w, r, events)
 	})
 
-	http.Handle("/video", websocket.Handler(func(ws *websocket.Conn) {
-		videoHandler(ws, events)
-	}))
+	http.HandleFunc("/chat", chatHandler)
 
-	fs := http.FileServer(http.Dir("webroot"))
+	http.Handle("/video", websocket.Handler(clientVideoHandler))
+	http.Handle("/events", websocket.Handler(clientEventHandler))
+
+	fs := http.FileServer(http.Dir("webroot2"))
 	http.Handle("/", http.StripPrefix("/", fs))
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func videoHandler(ws *websocket.Conn, events chan JsonEvent) {
+func sendClientEvent(je JsonEvent) {
 
-	if !sendHeader(ws) {
+	clientMu.RLock()
+	defer clientMu.RUnlock()
+
+	for e, ws := range eventClients {
+
+		if len(e) > maxEvents-(maxEvents/10) {
+			log.Printf("INFO Dropping video frames on client: %v\n", ws.Request().RemoteAddr)
+			for len(e) != 0 {
+				<-e
+			}
+		}
+
+		e <- je
+	}
+}
+
+func sendVideoToClients(d []byte) {
+
+	clientMu.RLock()
+	defer clientMu.RUnlock()
+
+	for v, ws := range videoClients {
+
+		if len(v) > maxVideo-(maxVideo/10) {
+			log.Printf("INFO Dropping video frames on client: %v\n", ws.Request().RemoteAddr)
+			for len(v) != 0 {
+				<-v
+			}
+		}
+
+		v <- d
+	}
+}
+
+func sendEventToClient(ev JsonEvent) {
+
+	switch ev.Type {
+	case TrackPower:
+		powerEvent([]byte(ev.Event))
+	default:
+		log.Printf("ERROR: Not sending unknown event type (%v) to server.\n", ev.Type)
+	}
+
+}
+
+func powerEvent(jsonBytes []byte) {
+
+	var p Power
+	if err := json.Unmarshal(jsonBytes, &p); err != nil {
+		log.Printf("ERROR: Failed to unmarshal power: %v\n", err.Error())
 		return
 	}
 
-	startEvent := JsonEvent{Type: StartVideo}
-	events <- startEvent
+	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- POWER(%v,%v) --", p.Left, p.Right)}
 
-	v := addClient(ws)
-	<-v.done
+	jsonBytes, err := json.Marshal(a)
+	if err != nil {
+		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
+	}
 
-	clientMU.Lock()
-	defer clientMU.Unlock()
+	je := JsonEvent{Type: ActionEvent, Event: string(jsonBytes)}
 
-	if len(clients) >= 0 {
+	sendClientEvent(je)
+
+}
+
+func robotDownEvent() {
+
+	a := Action{Time: formatedTime(), Name: "SYSTEM", Action: "OFFLINE"}
+
+	jsonBytes, err := json.Marshal(a)
+	if err != nil {
+		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
+	}
+
+	je := JsonEvent{Type: ActionEvent, Event: string(jsonBytes)}
+
+	sendClientEvent(je)
+}
+
+func clientEventHandler(ws *websocket.Conn) {
+
+	eventChan := make(chan JsonEvent, maxEvents)
+	addEventClient(eventChan, ws)
+	defer removeEventClient(eventChan)
+
+	wsLogInfo(ws, "Event client connected.")
+	defer wsLogInfo(ws, "Event client disconnected.")
+
+	for {
+		event := <-eventChan
+		if err := websocket.JSON.Send(ws, &event); err != nil {
+			wsLogError(ws, err.Error())
+			return
+		}
+	}
+}
+
+func clientVideoHandler(ws *websocket.Conn) {
+
+	if err := sendJSMPHeader(ws); err != nil {
+		log.Printf("INFO: Video client ended: %v.\n", err.Error())
 		return
 	}
 
-	endEvent := JsonEvent{Type: EndVideo}
-	events <- endEvent
+	videoChan := make(chan []byte, maxVideo)
+	addVideoClient(videoChan, ws)
+	defer removeVideoClient(videoChan)
 
+	wsLogInfo(ws, "Video client connected.")
+	defer wsLogInfo(ws, "Video client disconnected.")
+
+	for {
+		data := <-videoChan
+		if err := websocket.Message.Send(ws, data); err != nil {
+			wsLogError(ws, err.Error())
+			return
+		}
+	}
 }
 
-func removeClient(v *videoClient) {
-	clientMU.Lock()
-	defer clientMU.Unlock()
-	delete(clients, v)
-	v.done <- true
+func addEventClient(e chan JsonEvent, ws *websocket.Conn) {
+	clientMu.Lock()
+	defer clientMu.Unlock()
+	eventClients[e] = ws
 }
 
-func addClient(ws *websocket.Conn) *videoClient {
-	clientMU.Lock()
-	defer clientMU.Unlock()
-
-	v := &videoClient{WS: ws}
-	v.done = make(chan bool)
-	clients[v] = true
-
-	return v
+func removeEventClient(e chan JsonEvent) {
+	clientMu.Lock()
+	defer clientMu.Unlock()
+	delete(eventClients, e)
 }
 
-func sendHeader(ws *websocket.Conn) bool {
+func addVideoClient(v chan []byte, ws *websocket.Conn) {
+	clientMu.Lock()
+	defer clientMu.Unlock()
+	videoClients[v] = ws
+}
 
-	mu.Lock()
-	defer mu.Unlock()
+func removeVideoClient(v chan []byte) {
+	clientMu.Lock()
+	defer clientMu.Unlock()
+	delete(videoClients, v)
+}
+
+func sendJSMPHeader(ws *websocket.Conn) error {
 
 	bb := new(bytes.Buffer)
 	bb.Write([]byte("jsmp"))
-	binary.Write(bb, binary.BigEndian, uint16(1280))
-	binary.Write(bb, binary.BigEndian, uint16(720))
+	binary.Write(bb, binary.BigEndian, uint16(640))
+	binary.Write(bb, binary.BigEndian, uint16(480))
 
 	if err := websocket.Message.Send(ws, bb.Bytes()); err != nil {
-		log.Printf("ERROR: Failed to send video header to client: %v.\n", err.Error())
-		return false
+		return err
 	}
 
-	return true
+	return nil
 }
 
 func powerHandler(w http.ResponseWriter, r *http.Request, events chan JsonEvent) {
 
-	log.Println("Powerhandler.")
+	logInfo(r, "Power handler")
 
 	jsonBytes, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("ERROR: Failed to read body: %v", err.Error())
+		logError(r, fmt.Sprintf("Failed to read body: %v", err.Error()))
 		http.Error(w, "Failed to read body.", 500)
 		return
 	}
 
 	var power Power
 	if err := json.Unmarshal(jsonBytes, &power); err != nil {
-		log.Printf("ERROR: Failed to unmarshal power: %v\n", err.Error())
-		http.Error(w, "Failed to unmarshal power", 400)
+		logError(r, fmt.Sprintf("Failed to unmarshal power: %v", err.Error()))
+		http.Error(w, "Failed to unmarshal power.", 400)
 		return
 	}
 
 	event := JsonEvent{Type: TrackPower, Event: string(jsonBytes)}
-
 	events <- event
+}
 
+func chatHandler(w http.ResponseWriter, r *http.Request) {
+
+	logInfo(r, "Chat handler")
+
+	jsonBytes, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		logError(r, fmt.Sprintf("Failed to read body: %v", err.Error()))
+		http.Error(w, "Failed to read body.", 500)
+		return
+	}
+
+	var chat Chat
+	if err := json.Unmarshal(jsonBytes, &chat); err != nil {
+		logError(r, fmt.Sprintf("Failed to unmarshal chat: %v", err.Error()))
+		http.Error(w, "Failed to unmarshal chat.", 400)
+		return
+	}
+
+	a := Action{Time: formatedTime(), Name: chat.Name, Action: chat.Text}
+	jsonBytes, err = json.Marshal(a)
+	if err != nil {
+		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
+	}
+
+	je := JsonEvent{Type: ChatEvent, Event: string(jsonBytes)}
+
+	sendClientEvent(je)
+}
+
+func logInfo(r *http.Request, msg string) {
+	log.Printf("INFO - %v - %v\n", r.RemoteAddr, msg)
+}
+
+func logError(r *http.Request, msg string) {
+	log.Printf("ERROR - %v - %v\n", r.RemoteAddr, msg)
+}
+
+func wsLogInfo(ws *websocket.Conn, msg string) {
+	wsLog(ws, fmt.Sprintf("INFO - %v - %v\n", ws.Request().RemoteAddr, msg))
+}
+
+func wsLogError(ws *websocket.Conn, msg string) {
+	wsLog(ws, fmt.Sprintf("ERROR - %v - %v\n", ws.Request().RemoteAddr, msg))
+}
+
+func wsLog(ws *websocket.Conn, msg string) {
+	log.Printf("%v", msg)
+}
+
+func formatedTime() string {
+	return time.Now().Format("03:04:05.000")
 }

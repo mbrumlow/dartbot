@@ -202,46 +202,50 @@ func event(ws *websocket.Conn, t *Tank, p *gpio.LedDriver, ev JsonEvent) {
 }
 
 func startVideo() {
-	controlLock.Lock()
-	defer controlLock.Unlock()
-
-	if video {
-		return
-	}
-
-	go func() {
-		//ffmpeg -s 1280x720  -f video4linux2 -i /dev/video0 -f mpeg1video  -r 30 http://127.0.0.1:8082/
-		cmd := exec.Command(
-			"/home/root/ffmpeg", "-s", "1280x720", "-f", "video4linux2",
-			"-i", "/dev/video0", "-f", "mpeg1video",
-			"-r", "30", "http://127.0.0.1:8082")
-
-		// VERY VERY DIRTY.
+	/*
 		controlLock.Lock()
-		err := cmd.Start()
-		videoCmd = cmd
-		controlLock.Unlock()
+		defer controlLock.Unlock()
 
-		if err != nil {
-			log.Printf("ERROR: Failed to start video encoder: %v.\n", err.Error())
+		if video {
+			return
 		}
 
-		if err := cmd.Wait(); err != nil {
-			log.Printf("ERROR: Video encoder failed: %v.\n", err.Error())
-		}
+		go func() {
+			//ffmpeg -s 1280x720  -f video4linux2 -i /dev/video0 -f mpeg1video  -r 30 http://127.0.0.1:8082/
+			cmd := exec.Command(
+				"/home/root/ffmpeg", "-s", "1280x720", "-f", "video4linux2",
+				"-i", "/dev/video0", "-f", "mpeg1video",
+				"-r", "30", "http://127.0.0.1:8082")
 
-		controlLock.Lock()
-		video = false
-		controlLock.Unlock()
-	}()
+			// VERY VERY DIRTY.
+			controlLock.Lock()
+			err := cmd.Start()
+			videoCmd = cmd
+			controlLock.Unlock()
 
-	video = true
+			if err != nil {
+				log.Printf("ERROR: Failed to start video encoder: %v.\n", err.Error())
+			}
+
+			if err := cmd.Wait(); err != nil {
+				log.Printf("ERROR: Video encoder failed: %v.\n", err.Error())
+			}
+
+			controlLock.Lock()
+			video = false
+			controlLock.Unlock()
+		}()
+
+		video = true
+	*/
 }
 
 func endVideo() {
-	controlLock.Lock()
-	defer controlLock.Unlock()
-	endVideoUnsafe()
+	/*
+		controlLock.Lock()
+		defer controlLock.Unlock()
+		endVideoUnsafe()
+	*/
 }
 func endVideoUnsafe() {
 
