@@ -2,7 +2,22 @@
 var username = "NOBODY"
 var powerLinked = true; 
 var eventws = new WebSocket("ws://" +window.location.host + "/events");
+var userset = false;
+var dir = 0; 
 
+document.onkeydown = checkKey;
+
+window.onload =  function () { 
+
+username = getCookie("username"); 
+if( username.length > 0 ) {
+    document.getElementById('coverDiv').className += ' hiddenClass';    
+    document.getElementById('usernameDiv').className += ' hiddenClass';
+	userset = true;
+}
+
+};  
+ 
 eventws.onmessage = function(event) {
     
     var msg = JSON.parse(event.data);
@@ -21,6 +36,44 @@ eventws.onmessage = function(event) {
         default: 
             console.log("Unknown event: ", msg.Type) 
     }
+}
+
+function checkKey(e) {
+
+    e = e || window.event;
+
+	switch(e.keyCode) {
+		case 38:
+        	e.preventDefault();
+        	if(dir === -1 ) {
+            	fullStop(); 
+        	} else { 
+            	fullForward();
+        	}
+			break;  
+		case 40: 
+        	e.preventDefault();
+        	if( dir === 1 ) { 
+            	fullStop();
+        	} else { 
+            	fullReverse(); 
+        	}
+			break; 
+		case 37: 
+        	e.preventDefault();
+        	rotateLeft();
+			break;
+		case 39: 
+        	e.preventDefault();
+        	rotateRight();
+			break;
+		case 13: 
+			sendChat(); 
+			break; 
+		default: 
+	}
+
+
 }
 
 function handleEvent(ev, id) {
@@ -43,6 +96,8 @@ function setUser() {
     username = document.getElementById("nameInput").value;
     document.getElementById('coverDiv').className += ' hiddenClass';    
     document.getElementById('usernameDiv').className += ' hiddenClass';
+	userset = true;
+	setCookie("username", username, 1); 
     return false; 
 }
 
@@ -64,8 +119,9 @@ function updatePower() {
     
     var info = {};
     info["Name"] = username 
-    info["Left"] = Number(pl.value);
-    info["Right"] = Number(pr.value);
+    info["Left"] = Number(pl.value) - 255;
+    info["Right"] = Number(pr.value) - 255;
+    console.log("Power: " + JSON.stringify(info)); 
     post("/power", JSON.stringify(info))
 }
 
@@ -95,26 +151,26 @@ function powerLeft(p) {
 }
 
 function rotateLeft() {
-    powerRight(180);
+    powerRight(255 * 2);
     powerLeft(0); 
     updatePower();
 }
 
 function rotateRight() {
     powerRight(0);
-    powerLeft(180); 
+    powerLeft(255 * 2); 
     updatePower();
 }
 
 function fullForward() {
-    powerRight(180);
-    powerLeft(180); 
+    powerRight(510);
+    powerLeft(510); 
     updatePower();
 }
 
 function fullStop() {
-    powerRight(90); 
-    powerLeft(90); 
+    powerRight(255); 
+    powerLeft(255); 
     updatePower();
 }
 
@@ -138,6 +194,19 @@ function toggleLinked() {
 }
 
 
+function sendChat() {
+	
+	if(!userset) {
+		return;
+	}
+
+	var info = {};
+	info["Name"] = username;
+	info["Text"] = document.getElementById("txtArea").value;
+	post("/chat", JSON.stringify(info));
+	document.getElementById("txtArea").value = '';
+}
+
 function onTextChange() {
     var key = window.event.keyCode;
 
@@ -155,6 +224,24 @@ function onTextChange() {
     } else {
         return true;
     }   
+}
+
+function setCookie(cname, cvalue, exdays) {
+    var d = new Date();
+    d.setTime(d.getTime() + (exdays*24*60*60*1000));
+    var expires = "expires="+d.toUTCString();
+    document.cookie = cname + "=" + cvalue + "; " + expires;
+}
+
+function getCookie(cname) {
+    var name = cname + "=";
+    var ca = document.cookie.split(';');
+    for(var i=0; i<ca.length; i++) {
+        var c = ca[i];
+        while (c.charAt(0)==' ') c = c.substring(1);
+        if (c.indexOf(name) == 0) return c.substring(name.length,c.length);
+    }
+    return "";
 }
 
 

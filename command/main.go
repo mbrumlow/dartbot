@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,8 +44,9 @@ type Action struct {
 }
 
 type Power struct {
-	Left  uint8
-	Right uint8
+	Name  string
+	Left  int16
+	Right int16
 }
 
 type Chat struct {
@@ -213,7 +215,28 @@ func powerEvent(jsonBytes []byte) {
 		return
 	}
 
-	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- POWER(%v,%v) --", p.Left, p.Right)}
+	/*
+		if p.Left+p.Right != 0 {
+			if p.Left > 160 {
+				p.Left = 160
+			}
+
+			if p.Right > 160 {
+				p.Right = 160
+			}
+
+			if p.Left < -160 {
+				p.Left = -160
+			}
+
+			if p.Right < -160 {
+				p.Right = -160
+			}
+
+		}
+	*/
+
+	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- POWER(%v,%v) --", p.Left, p.Right), Name: fixName(p.Name)}
 
 	jsonBytes, err := json.Marshal(a)
 	if err != nil {
@@ -319,6 +342,14 @@ func sendJSMPHeader(ws *websocket.Conn) error {
 	return nil
 }
 
+func fixName(name string) string {
+	if len(name) > 8 {
+		return name[0:8]
+	}
+	name = name + strings.Repeat(" ", 8-len(name))
+	return name
+}
+
 func powerHandler(w http.ResponseWriter, r *http.Request, events chan JsonEvent) {
 
 	logInfo(r, "Power handler")
@@ -330,11 +361,16 @@ func powerHandler(w http.ResponseWriter, r *http.Request, events chan JsonEvent)
 		return
 	}
 
-	var power Power
-	if err := json.Unmarshal(jsonBytes, &power); err != nil {
+	var p Power
+	if err := json.Unmarshal(jsonBytes, &p); err != nil {
 		logError(r, fmt.Sprintf("Failed to unmarshal power: %v", err.Error()))
 		http.Error(w, "Failed to unmarshal power.", 400)
 		return
+	}
+
+	jsonBytes, err = json.Marshal(p)
+	if err != nil {
+		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
 	}
 
 	event := JsonEvent{Type: TrackPower, Event: string(jsonBytes)}
@@ -359,7 +395,7 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a := Action{Time: formatedTime(), Name: chat.Name, Action: chat.Text}
+	a := Action{Time: formatedTime(), Name: fixName(chat.Name), Action: chat.Text}
 	jsonBytes, err = json.Marshal(a)
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"log"
 	"net"
 	"net/http"
@@ -36,28 +37,43 @@ const (
 	EndVideo
 )
 
+var maxspeed = flag.Int("maxspeed", 255, "max speed")
+var maxrotate = flag.Int("maxrotate", 255, "max rotate")
+
 func main() {
+
+	flag.Parse()
 
 	runtime.GOMAXPROCS(2)
 
 	gbot := gobot.NewGobot()
 
 	e := edison.NewEdisonAdaptor("edison")
-	pinl := gpio.NewDirectPinDriver(e, "pin", "3")
-	pinr := gpio.NewDirectPinDriver(e, "pin", "5")
 	process := gpio.NewLedDriver(e, "led", "2")
 	connect := gpio.NewLedDriver(e, "led", "4")
 
+	pwmA := gpio.NewDirectPinDriver(e, "pwmA", "3")
+	breakA := gpio.NewDirectPinDriver(e, "breakA", "9")
+	dirA := gpio.NewDirectPinDriver(e, "dirA", "12")
+
+	pwmB := gpio.NewDirectPinDriver(e, "pwmB", "5")
+	breakB := gpio.NewDirectPinDriver(e, "breakB", "8")
+	dirB := gpio.NewDirectPinDriver(e, "dirB", "13")
+
 	work := func() {
-		tank := NewTank(pinl, pinr)
+		tank := NewTank(pwmA, breakA, dirA, pwmB, breakB, dirB, *maxspeed, *maxrotate)
 		go runHttpTank(tank, process, connect)
 		go runVideo()
 	}
 
 	robot := gobot.NewRobot("dartBot",
 		[]gobot.Connection{e},
-		[]gobot.Device{pinl},
-		[]gobot.Device{pinr},
+		[]gobot.Device{pwmA},
+		[]gobot.Device{breakA},
+		[]gobot.Device{dirA},
+		[]gobot.Device{pwmB},
+		[]gobot.Device{dirB},
+		[]gobot.Device{breakB},
 		[]gobot.Device{process},
 		[]gobot.Device{connect},
 		work,
