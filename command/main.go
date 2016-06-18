@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
@@ -18,8 +17,8 @@ import (
 )
 
 const (
-	maxVideo  = 200
-	maxEvents = 250
+	maxVideo  = 100
+	maxEvents = 10
 )
 
 const (
@@ -32,30 +31,52 @@ const (
 	ChatEvent
 )
 
+const (
+	_                = iota
+	AuthOK           = iota
+	AuthUserInUse    = iota
+	AuthPassRequired = iota
+	AuthBadPass      = iota
+	AuthBadName      = iota
+)
+
 type JsonEvent struct {
+	Name  string
 	Type  int
 	Event string
 }
 
 type Action struct {
 	Time   string
-	Name   string
 	Action string
 }
 
 type Power struct {
-	Name  string
 	Left  int16
 	Right int16
 }
 
 type Chat struct {
-	Name string
+	Auth string
 	Text string
+}
+
+type AuthEvent struct {
+	Name string
+	Auth string
+}
+
+type Client struct {
+	To     chan JsonEvent
+	From   chan JsonEvent
+	Name   string
+	Active bool
+	ws     *websocket.Conn
 }
 
 var (
 	clientMu     sync.RWMutex
+	clients      = make(map[string]map[*Client]interface{})
 	eventClients = make(map[chan JsonEvent]*websocket.Conn)
 	videoClients = make(map[chan []byte]*websocket.Conn)
 )
@@ -68,7 +89,7 @@ func main() {
 
 	if *robothostport == "" {
 		flag.PrintDefaults()
-		log.Fatal("Plase provide a host port.\n")
+		log.Fatal("Plase provide a host:port.\n")
 	}
 
 	url := fmt.Sprintf("ws://%v/control", *robothostport)
@@ -85,7 +106,7 @@ func main() {
 			log.Printf("ERROR: Failed to connect to dartbot: %v\n", err.Error())
 			robotDownEvent()
 
-			// clean out peding events
+			// Clean out pending events.
 			for i := len(events); i > 0; i-- {
 				<-events
 			}
@@ -94,7 +115,7 @@ func main() {
 			continue
 		}
 
-		// clean out peding events
+		// Clean out pending events.
 		for i := len(events); i > 0; i-- {
 			<-events
 		}
@@ -103,10 +124,13 @@ func main() {
 
 		for {
 			event := <-events
+			name := event.Name
+			event.Name = ""
 			if err := websocket.JSON.Send(ws, &event); err != nil {
 				log.Printf("ERROR: Failed to send event to robot: %v.\n", err.Error())
 				break
 			}
+			event.Name = name
 			sendEventToClient(event)
 		}
 
@@ -146,36 +170,14 @@ func decodeVideo(s string) {
 
 func startHttp(events chan JsonEvent) {
 
-	http.HandleFunc("/power", func(w http.ResponseWriter, r *http.Request) {
-		powerHandler(w, r, events)
-	})
-
-	http.HandleFunc("/chat", chatHandler)
-
 	http.Handle("/video", websocket.Handler(clientVideoHandler))
-	http.Handle("/events", websocket.Handler(clientEventHandler))
+	http.Handle("/client", websocket.Handler(func(ws *websocket.Conn) {
+		clientHandler(ws, events)
+	}))
 
 	fs := http.FileServer(http.Dir("webroot"))
 	http.Handle("/", http.StripPrefix("/", fs))
 	log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
-func sendClientEvent(je JsonEvent) {
-
-	clientMu.RLock()
-	defer clientMu.RUnlock()
-
-	for e, ws := range eventClients {
-
-		if len(e) > maxEvents-(maxEvents/10) {
-			log.Printf("INFO Dropping video frames on client: %v\n", ws.Request().RemoteAddr)
-			for len(e) != 0 {
-				<-e
-			}
-		}
-
-		e <- je
-	}
 }
 
 func sendVideoToClients(d []byte) {
@@ -200,14 +202,14 @@ func sendEventToClient(ev JsonEvent) {
 
 	switch ev.Type {
 	case TrackPower:
-		powerEvent([]byte(ev.Event))
+		powerEvent(ev.Name, []byte(ev.Event))
 	default:
 		log.Printf("ERROR: Not sending unknown event type (%v) to server.\n", ev.Type)
 	}
 
 }
 
-func powerEvent(jsonBytes []byte) {
+func powerEvent(name string, jsonBytes []byte) {
 
 	var p Power
 	if err := json.Unmarshal(jsonBytes, &p); err != nil {
@@ -215,68 +217,280 @@ func powerEvent(jsonBytes []byte) {
 		return
 	}
 
-	/*
-		if p.Left+p.Right != 0 {
-			if p.Left > 160 {
-				p.Left = 160
-			}
-
-			if p.Right > 160 {
-				p.Right = 160
-			}
-
-			if p.Left < -160 {
-				p.Left = -160
-			}
-
-			if p.Right < -160 {
-				p.Right = -160
-			}
-
-		}
-	*/
-
-	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- POWER(%v,%v) --", p.Left, p.Right), Name: fixName(p.Name)}
+	a := Action{Time: formatedTime(), Action: fmt.Sprintf("-- POWER(%v,%v) --", p.Left, p.Right)}
 
 	jsonBytes, err := json.Marshal(a)
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
 	}
 
-	je := JsonEvent{Type: ActionEvent, Event: string(jsonBytes)}
+	je := JsonEvent{Name: name, Type: ActionEvent, Event: string(jsonBytes)}
 
-	sendClientEvent(je)
+	sendToAll(je)
 
 }
 
 func robotDownEvent() {
 
-	a := Action{Time: formatedTime(), Name: "SYSTEM", Action: "OFFLINE"}
+	a := Action{Time: formatedTime(), Action: "OFFLINE"}
 
 	jsonBytes, err := json.Marshal(a)
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
 	}
 
-	je := JsonEvent{Type: ActionEvent, Event: string(jsonBytes)}
+	je := JsonEvent{Name: "SYSTEM", Type: ActionEvent, Event: string(jsonBytes)}
 
-	sendClientEvent(je)
+	sendToAll(je)
 }
 
-func clientEventHandler(ws *websocket.Conn) {
+func jsonEvent(t int, v interface{}, name string) (JsonEvent, error) {
 
-	eventChan := make(chan JsonEvent, maxEvents)
-	addEventClient(eventChan, ws)
-	defer removeEventClient(eventChan)
+	jb, err := json.Marshal(v)
+	if err != nil {
+		return JsonEvent{}, err
+	}
 
-	wsLogInfo(ws, "Event client connected.")
-	defer wsLogInfo(ws, "Event client disconnected.")
+	je := JsonEvent{Name: name, Type: t, Event: string(jb)}
+	return je, nil
+}
+
+func clientEventReader(c *Client) {
+	for {
+		var je JsonEvent
+		if err := websocket.JSON.Receive(c.ws, &je); err != nil {
+			wsLogErrorf(c.ws, "Error reading event: %v", err)
+			close(c.From)
+			return
+		}
+		c.From <- je
+	}
+}
+
+func addClient(c *Client, authenticated bool) bool {
+
+	clientMu.Lock()
+	defer clientMu.Unlock()
+
+	m, ok := clients[c.Name]
+	if ok && !authenticated {
+		return false
+	}
+
+	if !ok {
+		m = make(map[*Client]interface{})
+		clients[c.Name] = m
+	}
+
+	m[c] = nil
+	log.Printf("Adding client %v:%p\n", c.Name, c)
+
+	return true
+}
+
+func delClient(c *Client) {
+
+	log.Printf("Deleting client %v:%p\n", c.Name, c)
+
+	clientMu.Lock()
+	defer clientMu.Unlock()
+
+	m, ok := clients[c.Name]
+	if !ok {
+		return
+	}
+
+	delete(m, c)
+
+	if len(m) == 0 {
+		delete(clients, c.Name)
+	}
+
+}
+
+func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
+
+	defer ws.Close()
+	wsLogInfo(ws, "Connected.")
+	defer wsLogInfo(ws, "Disconnected.")
+
+	client := &Client{
+		To:   make(chan JsonEvent, maxEvents),
+		From: make(chan JsonEvent, 1),
+		ws:   ws,
+	}
 
 	for {
-		event := <-eventChan
-		if err := websocket.JSON.Send(ws, &event); err != nil {
-			wsLogError(ws, err.Error())
+
+		var authEvent AuthEvent
+		err := websocket.JSON.Receive(ws, &authEvent)
+		if err != nil {
+			wsLogInfof(ws, "Error receiving auth event: %v", err.Error())
 			return
+		}
+
+		wsLogInfof(ws, "Recived auth for '%v'", authEvent.Name)
+
+		if authEvent.Name == "" {
+			je, err := jsonEvent(AuthBadName, "Invalid username.", "")
+			if err != nil {
+				wsLogErrorf(ws, "Failed to create AuthUserInUse event: %v", err)
+				return
+			}
+			if err := websocket.JSON.Send(ws, &je); err != nil {
+				wsLogErrorf(ws, "Failed to send AuthBadName event: %v", err)
+				return
+			}
+			continue
+		}
+
+		authenticated := false
+		if len(authEvent.Auth) > 0 {
+			// TODO authenticate
+
+		}
+
+		if !authenticated {
+			// TODO: Check if name is registered.
+		}
+
+		client.Name = authEvent.Name
+		if addClient(client, authenticated) != true {
+
+			je, err := jsonEvent(AuthUserInUse, "Username already in use.", "")
+			if err != nil {
+				wsLogErrorf(ws, "Failed to create AuthUserInUse event: %v", err)
+				return
+			}
+
+			if err := websocket.JSON.Send(ws, &je); err != nil {
+				wsLogErrorf(ws, "Failed to send AuthUserInUse event: %v", err)
+				return
+			}
+		} else {
+			defer delClient(client)
+			break
+		}
+
+	}
+
+	client.logInfof("Authenticated.")
+
+	if err := func() error {
+		je, err := jsonEvent(AuthOK, "Authenticated.", fixName(client.Name))
+		if err != nil {
+			return fmt.Errorf("Failed to create AuthUserInUse event: %v", err)
+		}
+
+		if err := websocket.JSON.Send(ws, &je); err != nil {
+			return fmt.Errorf("Failed to send AuthUserInUse event: %v", err)
+
+		}
+		return nil
+	}(); err != nil {
+		wsLogErrorf(ws, err.Error())
+		return
+	}
+
+	// TODO - make client active / sync
+	// This should populate the clients chat back log and set current robot state.
+
+	go clientEventReader(client)
+
+	for {
+		select {
+		case event := <-client.To:
+			if err := websocket.JSON.Send(ws, &event); err != nil {
+				wsLogErrorf(ws, "Error sending event: %v", err)
+				return
+			}
+		case clientEvent, ok := <-client.From:
+			if !ok {
+				return
+			}
+			client.handleEvent(clientEvent, events)
+		}
+	}
+
+}
+
+func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
+
+	switch je.Type {
+	case ChatEvent:
+		c.handleChatEvent(je)
+	case TrackPower:
+		c.handleTrackPowerEvent(je, events)
+	default:
+		log.Printf("Recived unknown event (%v)\n", je.Type)
+	}
+
+}
+
+func (c *Client) handleChatEvent(e JsonEvent) {
+
+	c.logPrefixf("CHAT", "%v\n", e.Event)
+
+	a := Action{Time: formatedTime(), Action: e.Event}
+	je, err := jsonEvent(ChatEvent, a, fixName(c.Name))
+	if err != nil {
+		log.Printf("Failed to create jsonEvent: %v", err)
+		return
+	}
+
+	sendToAll(je)
+}
+
+func (c *Client) handleTrackPowerEvent(e JsonEvent, events chan JsonEvent) {
+
+	// Sanity check, decode and encode before sending it to the robot.
+	var p Power
+	if err := json.Unmarshal([]byte(e.Event), &p); err != nil {
+		log.Printf("Failed decode TrackPower: %v\n", err)
+		return
+	}
+
+	c.logPrefixf("POWER", "%v,%v\n", p.Left, p.Right)
+
+	je, err := jsonEvent(TrackPower, p, fixName(c.Name))
+	if err != nil {
+		log.Printf("Failed to create jsonEvent: %v", err)
+		return
+	}
+
+	events <- je
+}
+
+func (c *Client) logPrefixf(prefix, format string, a ...interface{}) {
+
+	remoteAddr := "0"
+	if c.ws != nil {
+		remoteAddr = c.ws.Request().RemoteAddr
+	}
+
+	msg := fmt.Sprintf(format, a...)
+	log.Printf("%v:%v[%p] - %v - %v", remoteAddr, c.Name, c, prefix, msg)
+
+}
+
+func (c *Client) logInfof(format string, a ...interface{}) {
+	c.logPrefixf("INFO", format, a...)
+}
+
+func sendToAll(je JsonEvent) {
+
+	clientMu.RLock()
+	defer clientMu.RUnlock()
+
+	for _, m := range clients {
+		for c, _ := range m {
+			if len(c.To) > maxEvents-(maxEvents/10) {
+				wsLogInfof(c.ws, "Dropping event.")
+				for len(c.To) != 0 {
+					<-c.To
+				}
+			}
+			c.To <- je
 		}
 	}
 }
@@ -302,18 +516,6 @@ func clientVideoHandler(ws *websocket.Conn) {
 			return
 		}
 	}
-}
-
-func addEventClient(e chan JsonEvent, ws *websocket.Conn) {
-	clientMu.Lock()
-	defer clientMu.Unlock()
-	eventClients[e] = ws
-}
-
-func removeEventClient(e chan JsonEvent) {
-	clientMu.Lock()
-	defer clientMu.Unlock()
-	delete(eventClients, e)
 }
 
 func addVideoClient(v chan []byte, ws *websocket.Conn) {
@@ -350,61 +552,7 @@ func fixName(name string) string {
 	return name
 }
 
-func powerHandler(w http.ResponseWriter, r *http.Request, events chan JsonEvent) {
-
-	logInfo(r, "Power handler")
-
-	jsonBytes, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		logError(r, fmt.Sprintf("Failed to read body: %v", err.Error()))
-		http.Error(w, "Failed to read body.", 500)
-		return
-	}
-
-	var p Power
-	if err := json.Unmarshal(jsonBytes, &p); err != nil {
-		logError(r, fmt.Sprintf("Failed to unmarshal power: %v", err.Error()))
-		http.Error(w, "Failed to unmarshal power.", 400)
-		return
-	}
-
-	jsonBytes, err = json.Marshal(p)
-	if err != nil {
-		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
-	}
-
-	event := JsonEvent{Type: TrackPower, Event: string(jsonBytes)}
-	events <- event
-}
-
-func chatHandler(w http.ResponseWriter, r *http.Request) {
-
-	logInfo(r, "Chat handler")
-
-	jsonBytes, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		logError(r, fmt.Sprintf("Failed to read body: %v", err.Error()))
-		http.Error(w, "Failed to read body.", 500)
-		return
-	}
-
-	var chat Chat
-	if err := json.Unmarshal(jsonBytes, &chat); err != nil {
-		logError(r, fmt.Sprintf("Failed to unmarshal chat: %v", err.Error()))
-		http.Error(w, "Failed to unmarshal chat.", 400)
-		return
-	}
-
-	a := Action{Time: formatedTime(), Name: fixName(chat.Name), Action: chat.Text}
-	jsonBytes, err = json.Marshal(a)
-	if err != nil {
-		log.Printf("ERROR: Failed to marshal json: %v.\n", err.Error())
-	}
-
-	je := JsonEvent{Type: ChatEvent, Event: string(jsonBytes)}
-
-	sendClientEvent(je)
-}
+// TODO -- fix this logging stuff, its nasty.
 
 func logInfo(r *http.Request, msg string) {
 	log.Printf("INFO - %v - %v\n", r.RemoteAddr, msg)
@@ -418,7 +566,17 @@ func wsLogInfo(ws *websocket.Conn, msg string) {
 	wsLog(ws, fmt.Sprintf("INFO - %v - %v\n", ws.Request().RemoteAddr, msg))
 }
 
+func wsLogInfof(ws *websocket.Conn, format string, a ...interface{}) {
+	msg := fmt.Sprintf(format, a...)
+	wsLog(ws, fmt.Sprintf("INFO - %v - %v\n", ws.Request().RemoteAddr, msg))
+}
+
 func wsLogError(ws *websocket.Conn, msg string) {
+	wsLog(ws, fmt.Sprintf("ERROR - %v - %v\n", ws.Request().RemoteAddr, msg))
+}
+
+func wsLogErrorf(ws *websocket.Conn, format string, a ...interface{}) {
+	msg := fmt.Sprintf(format, a...)
 	wsLog(ws, fmt.Sprintf("ERROR - %v - %v\n", ws.Request().RemoteAddr, msg))
 }
 

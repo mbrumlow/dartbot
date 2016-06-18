@@ -1,71 +1,168 @@
 
-var username = "NOBODY"
 var powerLinked = true; 
-var eventws = new WebSocket("ws://" +window.location.host + "/events");
-var userset = false;
+var ws = new WebSocket("ws://" +window.location.host + "/client");
+
+var authenticated = false;
 var dir = 0; 
+
 
 document.onkeydown = checkKey;
 
+/* TODO -- reimplement this 
 window.onload =  function () { 
+    
+    // Attempt to log in using cookie. 
 
-username = getCookie("username"); 
-if( username.length > 0 ) {
-    document.getElementById('coverDiv').className += ' hiddenClass';    
-    document.getElementById('usernameDiv').className += ' hiddenClass';
-	userset = true;
-}
+    // Check if we have auth cookie. 
+    //username = getCookie("username"); 
+    var authCookie = "" 
+    
+    if( authCookie.length > 0  ) {
+        // Send auth cookie over websocket. 
+    }
 
 };  
- 
-eventws.onmessage = function(event) {
+*/
+
+ws.onmessage = function(event) {
     
     var msg = JSON.parse(event.data);
 
     ev = JSON.parse(msg.Event) 
 
     switch(msg.Type) {
-        
-        // ACTION 
-        case 32: 
-            handleEvent(ev, "actionLog") 
+       
+        case 1: // AUTH_OK  
+            authOk(); 
             break;
-        case 64: 
-            handleEvent(ev, "chatLog") 
+
+        case 2: // AUTH_USERNAME_IN_USE
+            authUserInUse();
+            break; 
+            
+        case 3: // AUTH_REQUIRE_PASSWORD 
+            authPassRequired();
+            break;
+
+        case 4: // AUTH_BAD_PASSWORD
+            authBadPass(); 
+            break;
+        
+        case 5: // AUTH_BAD_NAME
+            authBadName(); 
+            break;
+
+
+        // ACTIONS
+        
+        case 32: // TrackPower
+            handleEvent(msg.Name, ev, "actionLog") 
+            break;
+        case 64: // Chat 
+            handleEvent(msg.Name, ev, "chatLog") 
             break;
         default: 
             console.log("Unknown event: ", msg.Type) 
     }
+
+
+}
+
+function authOk() {
+
+    document.getElementById('authScreen').className = 'hidden';    
+    document.getElementById('authInput').className = 'hidden';
+    document.getElementById('authErrorInUse').className = 'authError hidden';
+    document.getElementById('authErrorPassRequired').className = 'authError hidden';
+    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+
+    authenticated = true;
+}
+
+function authUserInUse() {
+
+    document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authInput').className = 'visible';
+    document.getElementById('authErrorInUse').className = 'authError visible';
+    document.getElementById('authErrorPassRequired').className = 'authError hidden';
+    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+    document.getElementById('AuthErrorBadName').className = 'authError hidden';
+       
+    authenticated = false;
+}
+
+function authPassRequired() {
+
+    document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authInput').className = 'visible';
+    document.getElementById('authErrorInUse').className = 'authError hidden';
+    document.getElementById('authErrorPassRequired').className = 'authError visible';
+    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+    document.getElementById('AuthErrorBadName').className = 'authError hidden';
+       
+    authenticated = false;
+}
+
+function authBadPass() {
+
+    document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authInput').className = 'visible';
+    document.getElementById('authErrorInUse').className = 'authError hidden';
+    document.getElementById('authErrorPassRequired').className = 'authError hidden';
+    document.getElementById('AuthErrorBadPass').className = 'authError visible';
+    document.getElementById('AuthErrorBadName').className = 'authError hidden';
+       
+    authenticated = false;
+}
+
+function authBadName() {
+
+    document.getElementById('authScreen').className = 'visible';    
+    document.getElementById('authInput').className = 'visible';
+    document.getElementById('authErrorInUse').className = 'authError hidden';
+    document.getElementById('authErrorPassRequired').className = 'authError hidden';
+    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+    document.getElementById('AuthErrorBadName').className = 'authError visible';
+       
+    authenticated = false;
 }
 
 function checkKey(e) {
 
-    e = e || window.event;
+	e = e || window.event;
 
 	switch(e.keyCode) {
 		case 38:
-        	e.preventDefault();
-        	if(dir === -1 ) {
-            	fullStop(); 
-        	} else { 
-            	fullForward();
-        	}
+			e.preventDefault();
+			if(dir === -1 ) {
+				fullStop(); 
+			} else { 
+				fullForward();
+			}
 			break;  
 		case 40: 
-        	e.preventDefault();
-        	if( dir === 1 ) { 
-            	fullStop();
-        	} else { 
-            	fullReverse(); 
-        	}
+			e.preventDefault();
+			if( dir === 1 ) { 
+				fullStop();
+			} else { 
+				fullReverse(); 
+			}
 			break; 
 		case 37: 
-        	e.preventDefault();
-        	rotateLeft();
+			e.preventDefault();
+			if( dir == 2 ) {
+				fullStop();
+			} else { 
+				rotateLeft();
+			}
 			break;
 		case 39: 
-        	e.preventDefault();
-        	rotateRight();
+			e.preventDefault();
+			if( dir == 3 ) { 
+				fullStop();
+			} else { 
+				rotateRight();
+			}
 			break;
 		case 13: 
 			sendChat(); 
@@ -73,10 +170,10 @@ function checkKey(e) {
 		default: 
 	}
 
-
 }
 
-function handleEvent(ev, id) {
+
+function handleEvent(name, ev, id) {
    var elem = document.getElementById(id);
    children = elem.children;
     
@@ -85,26 +182,28 @@ function handleEvent(ev, id) {
    }
 
    var node = document.createElement("div");
-   var textnode = document.createTextNode(ev.Time + ": " + ev.Name  + " > " + ev.Action);
+   var textnode = document.createTextNode(ev.Time + ": " + name  + " > " + ev.Action);
    
    node.appendChild(textnode); 
    elem.appendChild(node); 
    elem.scrollTop = elem.scrollHeight;
 }
 
-function setUser() {
-    username = document.getElementById("nameInput").value;
-    document.getElementById('coverDiv').className += ' hiddenClass';    
-    document.getElementById('usernameDiv').className += ' hiddenClass';
-	userset = true;
-	setCookie("username", username, 1); 
-    return false; 
+function login() {
+
+    username = document.getElementById("nameInput").value; 
+    password = document.getElementById("passInput").value; 
+
+    ws.send(JSON.stringify({
+        Name: username,
+        Auth: password,
+    }));
+
+    return false;
+
 }
 
-function load() {
-
-}
-
+/* Not needed any more - YAY!
 function post( address, message ) {
     var method = "POST";
     var xhr = new XMLHttpRequest();
@@ -112,17 +211,21 @@ function post( address, message ) {
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.send(message);
 }
+*/
 
 function updatePower() {
     pl = document.getElementById("powerLeft");
     pr = document.getElementById("powerRight");
     
-    var info = {};
-    info["Name"] = username 
-    info["Left"] = Number(pl.value) - 255;
-    info["Right"] = Number(pr.value) - 255;
-    console.log("Power: " + JSON.stringify(info)); 
-    post("/power", JSON.stringify(info))
+    var power = {};
+    power["Left"] = Number(pl.value) - 255;
+    power["Right"] = Number(pr.value) - 255;
+   
+    var je = {}; 
+    je["Type"] = 2; // TrackPower
+    je["Event"] = JSON.stringify(power);
+    
+    ws.send(JSON.stringify(je));
 }
 
 function updatePowerLinked(e) {
@@ -150,31 +253,37 @@ function powerLeft(p) {
     pl.value = p;   
 }
 
+
 function rotateLeft() {
+    dir = 3; 
     powerRight(255 * 2);
     powerLeft(0); 
     updatePower();
 }
 
 function rotateRight() {
+    dir = 2; 
     powerRight(0);
     powerLeft(255 * 2); 
     updatePower();
 }
 
 function fullForward() {
+    dir = 1; 
     powerRight(510);
     powerLeft(510); 
     updatePower();
 }
 
 function fullStop() {
+    dir = 0; 
     powerRight(255); 
     powerLeft(255); 
     updatePower();
 }
 
 function fullReverse() {
+    dir = -1;
     powerRight(0); 
     powerLeft(0); 
     updatePower();
@@ -195,35 +304,18 @@ function toggleLinked() {
 
 
 function sendChat() {
-	
-	if(!userset) {
-		return;
-	}
+    
+    if(!authenticated) {
+        return;
+    }
 
 	var info = {};
-	info["Name"] = username;
-	info["Text"] = document.getElementById("txtArea").value;
-	post("/chat", JSON.stringify(info));
-	document.getElementById("txtArea").value = '';
-}
+	info["Type"] = 64; // CHAT_EVENT
+	info["Event"] = document.getElementById("txtArea").value;
 
-function onTextChange() {
-    var key = window.event.keyCode;
-
-    if (key == 13) {
-        //document.getElementById("txtArea").value =document.getElementById("txtArea").value + "\n*";
+    ws.send(JSON.stringify(info));
+    document.getElementById("txtArea").value = '';
     
-        var info = {};
-        info["Name"] = username;
-        info["Text"] = document.getElementById("txtArea").value;
-        post("/chat", JSON.stringify(info));
-        
-        document.getElementById("txtArea").value = '';
-            
-        return false;
-    } else {
-        return true;
-    }   
 }
 
 function setCookie(cname, cvalue, exdays) {
@@ -243,6 +335,5 @@ function getCookie(cname) {
     }
     return "";
 }
-
 
 
