@@ -1,77 +1,90 @@
 
+var ws; 
 var powerLinked = true; 
-var ws = new WebSocket("ws://" +window.location.host + "/client");
-
 var username = ""; 
 var authenticated = false;
 var dir = 0; 
 
-
 document.onkeydown = checkKey;
-
-ws.onopen =  function () { 
-    
-    // Attempt to log in using cookie information. 
-
-    username = getCookie("username"); 
-    var authToken = getCookie("authToken");
-    authToken = authToken.replace(/['"]+/g, '')
-    
-    if( username.length > 0  && authToken.length > 0 ) {
-
-        ws.send(JSON.stringify({
-            Name: username,
-            Token: authToken,
-        }));
-        
-        autoAuth(); 
-    }
-
-};  
-
-ws.onmessage = function(event) {
-    
-    var msg = JSON.parse(event.data);
-
-    ev = JSON.parse(msg.Event) 
-
-    switch(msg.Type) {
-       
-        case 1: // AUTH_OK  
-            authOk(msg.Event); 
-            break;
-
-        case 2: // AUTH_USERNAME_IN_USE
-            authUserInUse();
-            break; 
-            
-        case 3: // AUTH_REQUIRE_PASSWORD 
-            authPassRequired();
-            break;
-
-        case 4: // AUTH_BAD_PASSWORD
-            authBadPass(); 
-            break;
-        
-        case 5: // AUTH_BAD_NAME
-            authBadName(); 
-            break;
+createWebSocket(); 
 
 
-        // ACTIONS
-        
-        case 32: // TrackPower
-            handleEvent(msg, ev, "actionLog") 
-            break;
-        case 64: // Chat 
-            handleEvent(msg, ev, "chatLog") 
-            break;
-        default: 
-            console.log("Unknown event: ", msg.Type) 
-    }
+function createWebSocket() {
+
+	ws = new WebSocket("ws://" +window.location.host + "/client");  
+
+	ws.onopen =  function () { 
+
+		// Attempt to log in using cookie information. 
+
+		username = getCookie("username"); 
+		var authToken = getCookie("authToken");
+		authToken = authToken.replace(/['"]+/g, '')
+
+		if( username.length > 0  && authToken.length > 0 ) {
+
+			ws.send(JSON.stringify({
+				Name: username,
+				Token: authToken,
+			}));
+
+			autoAuth(); 
+		}
+
+	};  
+
+	ws.onmessage = function(event) {
+
+		var msg = JSON.parse(event.data);
+
+		ev = JSON.parse(msg.Event) 
+
+		switch(msg.Type) {
+
+			case 1: // AUTH_OK  
+				authOk(msg.Event); 
+				break;
+
+			case 2: // AUTH_USERNAME_IN_USE
+				authUserInUse();
+				break; 
+
+			case 3: // AUTH_REQUIRE_PASSWORD 
+				authPassRequired();
+				break;
+
+			case 4: // AUTH_BAD_PASSWORD
+				authBadPass(); 
+				break;
+
+			case 5: // AUTH_BAD_NAME
+				authBadName(); 
+				break;
 
 
+				// ACTIONS
+
+			case 32: // TrackPower
+				handleEvent(msg, ev, "actionLog") 
+				break;
+			case 64: // Chat 
+				handleEvent(msg, ev, "chatLog") 
+				break;
+			default: 
+				console.log("Unknown event: ", msg.Type) 
+		}
+
+	};
+
+	ws.onclose = function() {
+
+		setTimeout(function() {
+			createWebSocket()
+		}, 3);
+
+	};  
 }
+
 
 function autoAuth() {
     document.getElementById('authScreen').className = 'hidden';    
