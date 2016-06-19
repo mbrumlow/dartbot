@@ -61,10 +61,10 @@ ws.onmessage = function(event) {
         // ACTIONS
         
         case 32: // TrackPower
-            handleEvent(msg.Name, ev, "actionLog") 
+            handleEvent(msg, ev, "actionLog") 
             break;
         case 64: // Chat 
-            handleEvent(msg.Name, ev, "chatLog") 
+            handleEvent(msg, ev, "chatLog") 
             break;
         default: 
             console.log("Unknown event: ", msg.Type) 
@@ -189,7 +189,7 @@ function checkKey(e) {
 }
 
 
-function handleEvent(name, ev, id) {
+function handleEvent(je, ev, id) {
    var elem = document.getElementById(id);
    children = elem.children;
     
@@ -198,7 +198,7 @@ function handleEvent(name, ev, id) {
    }
 
    var node = document.createElement("div");
-   var textnode = document.createTextNode(ev.Time + ": " + name  + " > " + ev.Action);
+   var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name  + " > " + ev.Action);
    
    node.appendChild(textnode); 
    elem.appendChild(node); 
