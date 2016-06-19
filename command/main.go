@@ -466,6 +466,10 @@ func (c *Client) handleEvent(je JsonEvent, events chan JsonEvent) {
 
 func (c *Client) handleChatEvent(e JsonEvent) {
 
+	if e.Event == "" {
+		return
+	}
+
 	c.logPrefixf("CHAT", "%v\n", e.Event)
 
 	a := Action{Time: formatedTime(), Action: e.Event}

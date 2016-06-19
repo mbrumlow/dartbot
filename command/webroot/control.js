@@ -341,9 +341,15 @@ function sendChat() {
         return;
     }
 
+	if( document.getElementById("txtArea").value.length == 0 ) {
+		return;
+	}
+
 	var info = {};
 	info["Type"] = 64; // CHAT_EVENT
 	info["Event"] = document.getElementById("txtArea").value;
+
+	
 
     ws.send(JSON.stringify(info));
     document.getElementById("txtArea").value = '';
