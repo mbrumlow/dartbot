@@ -202,20 +202,62 @@ function checkKey(e) {
 }
 
 
-function handleEvent(je, ev, id) {
-   var elem = document.getElementById(id);
-   children = elem.children;
-    
-   if( children.length > 100 ) {
-        elem.removeChild(elem.firstChild);    
-   }
+function handleEvent(je, ev, type) {
 
-   var node = document.createElement("div");
-   var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name  + " > " + ev.Action);
-   
-   node.appendChild(textnode); 
-   elem.appendChild(node); 
-   elem.scrollTop = elem.scrollHeight;
+	var elem = document.getElementById(type);
+	children = elem.children;
+
+	if( children.length > 100 ) {
+		elem.removeChild(elem.firstChild);    
+	}
+
+	var lastChatIndex = -1;
+	if( children.length > 0 ) {
+		lastChatIndex = elem.lastChild.getAttribute("chatIndex");
+	}
+
+	if( lastChatIndex < ev.Id ) {
+		insertEventFast(je, ev, type) 	
+	} else {
+		insertEventSlow(je, ev, type) 	
+	}
+} 
+
+function insertEventSlow(je, ev, type) {
+	
+	var elem = document.getElementById(type);
+	children = elem.children;
+
+	var node = document.createElement("div");
+	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name  + " > " + ev.Action);
+	node.setAttribute("chatIndex", ev.Id); 
+	node.appendChild(textnode); 
+
+	for(var i = 0; i < children.length; i++) {
+		lastChatIndex = children[i].getAttribute("chatIndex");
+		if(lastChatIndex > ev.Id) {
+			elem.insertBefore(node, children[i]);
+			elem.scrollTop = elem.scrollHeight;	
+			return 
+		}	
+	}
+	
+	elem.appendChild(node); 
+	elem.scrollTop = elem.scrollHeight;
+
+}
+
+function insertEventFast(je, ev, type) {
+	
+	var elem = document.getElementById(type);
+
+	var node = document.createElement("div");
+	var textnode = document.createTextNode(ev.Time + ": " + je.UserInfo.Name  + " > " + ev.Action);
+	node.setAttribute("chatIndex", ev.Id); 
+	node.appendChild(textnode); 
+	
+	elem.appendChild(node); 
+	elem.scrollTop = elem.scrollHeight;
 }
 
 function login() {

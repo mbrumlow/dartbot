@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"container/list"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -18,8 +19,9 @@ import (
 )
 
 const (
-	maxVideo  = 100
-	maxEvents = 10
+	maxVideo   = 100
+	maxEvents  = 10
+	maxChatLog = 100
 )
 
 const (
@@ -48,6 +50,7 @@ type JsonEvent struct {
 }
 
 type Action struct {
+	Id     int64
 	Time   string
 	Action string
 }
@@ -85,8 +88,12 @@ type UserInfo struct {
 var (
 	clientMu     sync.RWMutex
 	clients      = make(map[string]map[*Client]interface{})
-	eventClients = make(map[chan JsonEvent]*websocket.Conn)
 	videoClients = make(map[chan []byte]*websocket.Conn)
+
+	chatMu  sync.RWMutex
+	chatLog = list.New()
+
+	chatChan = make(chan JsonEvent, 100)
 )
 
 var robothostport = flag.String("host", "", "host port of dartbot")
@@ -105,6 +112,7 @@ func main() {
 
 	events := make(chan JsonEvent, 1000)
 
+	go chatDispatcher()
 	go startHttp(events)
 
 	for {
@@ -432,6 +440,7 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 	// TODO - make client active / sync
 	// This should populate the clients chat back log and set current robot state.
 
+	go client.chatCatchUp()
 	go clientEventReader(client)
 
 	for {
@@ -447,6 +456,24 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 			}
 			client.handleEvent(clientEvent, events)
 		}
+	}
+
+}
+
+func (c *Client) chatCatchUp() {
+
+	// Get the list while under a lock.
+	// Make a copy of the list because we don't want to hold the lock
+	// while we wait to send all the events to the client (which my be slow).
+	chatMu.RLock()
+	catchupLog := make([]JsonEvent, chatLog.Len())
+	for e := chatLog.Front(); e != nil; e = e.Next() {
+		catchupLog = append(catchupLog, e.Value.(JsonEvent))
+	}
+	chatMu.RUnlock()
+
+	for _, je := range catchupLog {
+		c.To <- je
 	}
 
 }
@@ -472,12 +499,28 @@ func (c *Client) handleChatEvent(e JsonEvent) {
 
 	c.logPrefixf("CHAT", "%v\n", e.Event)
 
-	a := Action{Time: formatedTime(), Action: e.Event}
+	// Chat order is not *that* important. Because of timing the real order
+	// of two closely timed chats could flip flop 1000 times before getting set.
+	id := time.Now().UnixNano() / int64(time.Millisecond)
+
+	a := Action{Id: id, Time: formatedTime(), Action: e.Event}
 	je, err := jsonEvent(ChatEvent, a, c.userInfo())
 	if err != nil {
 		c.logErrorf("Failed to create jsonEvent: %v", err)
 		return
 	}
+
+	// Manage in memory log.
+	chatMu.Lock()
+	chatLog.PushBack(je)
+
+	for chatLog.Len() > maxChatLog {
+		e := chatLog.Front()
+		if e != nil {
+			chatLog.Remove(e)
+		}
+	}
+	chatMu.Unlock()
 
 	sendToAll(je)
 }
@@ -535,7 +578,20 @@ func (c *Client) logErrorf(format string, a ...interface{}) {
 	c.logPrefixf("ERROR", format, a...)
 }
 
+func chatDispatcher() {
+
+	for {
+		je := <-chatChan
+		sendAll(je)
+	}
+
+}
+
 func sendToAll(je JsonEvent) {
+	chatChan <- je
+}
+
+func sendAll(je JsonEvent) {
 
 	clientMu.RLock()
 	defer clientMu.RUnlock()
