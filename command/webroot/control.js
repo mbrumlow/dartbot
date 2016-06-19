@@ -2,27 +2,32 @@
 var powerLinked = true; 
 var ws = new WebSocket("ws://" +window.location.host + "/client");
 
+var username = ""; 
 var authenticated = false;
 var dir = 0; 
 
 
 document.onkeydown = checkKey;
 
-/* TODO -- reimplement this 
-window.onload =  function () { 
+ws.onopen =  function () { 
     
-    // Attempt to log in using cookie. 
+    // Attempt to log in using cookie information. 
 
-    // Check if we have auth cookie. 
-    //username = getCookie("username"); 
-    var authCookie = "" 
+    username = getCookie("username"); 
+    var authToken = getCookie("authToken");
+    authToken = authToken.replace(/['"]+/g, '')
     
-    if( authCookie.length > 0  ) {
-        // Send auth cookie over websocket. 
+    if( username.length > 0  && authToken.length > 0 ) {
+
+        ws.send(JSON.stringify({
+            Name: username,
+            Token: authToken,
+        }));
+        
+        autoAuth(); 
     }
 
 };  
-*/
 
 ws.onmessage = function(event) {
     
@@ -33,7 +38,7 @@ ws.onmessage = function(event) {
     switch(msg.Type) {
        
         case 1: // AUTH_OK  
-            authOk(); 
+            authOk(msg.Event); 
             break;
 
         case 2: // AUTH_USERNAME_IN_USE
@@ -68,13 +73,24 @@ ws.onmessage = function(event) {
 
 }
 
-function authOk() {
+function autoAuth() {
+    document.getElementById('authScreen').className = 'hidden';    
+    document.getElementById('authInput').className = 'hidden';
+    document.getElementById('authErrorInUse').className = 'authError hidden';
+    document.getElementById('authErrorPassRequired').className = 'authError hidden';
+    document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+}
+
+function authOk(token) {
 
     document.getElementById('authScreen').className = 'hidden';    
     document.getElementById('authInput').className = 'hidden';
     document.getElementById('authErrorInUse').className = 'authError hidden';
     document.getElementById('authErrorPassRequired').className = 'authError hidden';
     document.getElementById('AuthErrorBadPass').className = 'authError hidden';
+
+    setCookie("authToken", token) 
+    setCookie("username", username) 
 
     authenticated = true;
 }
@@ -194,10 +210,13 @@ function login() {
     username = document.getElementById("nameInput").value; 
     password = document.getElementById("passInput").value; 
 
+
     ws.send(JSON.stringify({
         Name: username,
         Auth: password,
     }));
+
+
 
     return false;
 

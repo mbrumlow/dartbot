@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -62,8 +63,9 @@ type Chat struct {
 }
 
 type AuthEvent struct {
-	Name string
-	Auth string
+	Name  string
+	Auth  string
+	Token string
 }
 
 type Client struct {
@@ -71,6 +73,7 @@ type Client struct {
 	From   chan JsonEvent
 	Name   string
 	Active bool
+	Token  string
 	ws     *websocket.Conn
 }
 
@@ -267,13 +270,25 @@ func clientEventReader(c *Client) {
 	}
 }
 
-func addClient(c *Client, authenticated bool) bool {
+func addClient(c *Client, authenticated bool, token string) bool {
+
+	log.Printf("addClient: %v -> %v\n", c.Name, token)
 
 	clientMu.Lock()
 	defer clientMu.Unlock()
 
+	tokenMatch := false
+
 	m, ok := clients[c.Name]
 	if ok && !authenticated {
+		for c, _ := range m {
+			if c.Token == token {
+				tokenMatch = true
+			}
+		}
+	}
+
+	if ok && !tokenMatch {
 		return false
 	}
 
@@ -305,6 +320,18 @@ func delClient(c *Client) {
 	if len(m) == 0 {
 		delete(clients, c.Name)
 	}
+
+}
+
+func newToken() (string, error) {
+
+	b := make([]byte, 256)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", fmt.Errorf("Failed to generate new token: %v", err.Error())
+	}
+
+	return base64.StdEncoding.EncodeToString(b), nil
 
 }
 
@@ -355,7 +382,7 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 		}
 
 		client.Name = authEvent.Name
-		if addClient(client, authenticated) != true {
+		if addClient(client, authenticated, authEvent.Token) != true {
 
 			je, err := jsonEvent(AuthUserInUse, "Username already in use.", "")
 			if err != nil {
@@ -374,10 +401,17 @@ func clientHandler(ws *websocket.Conn, events chan JsonEvent) {
 
 	}
 
+	if token, err := newToken(); err != nil {
+		client.logErrorf("%v\n", err.Error())
+		return
+	} else {
+		client.Token = token
+	}
+
 	client.logInfof("Authenticated.")
 
 	if err := func() error {
-		je, err := jsonEvent(AuthOK, "Authenticated.", fixName(client.Name))
+		je, err := jsonEvent(AuthOK, client.Token, fixName(client.Name))
 		if err != nil {
 			return fmt.Errorf("Failed to create AuthUserInUse event: %v", err)
 		}
@@ -475,6 +509,10 @@ func (c *Client) logPrefixf(prefix, format string, a ...interface{}) {
 
 func (c *Client) logInfof(format string, a ...interface{}) {
 	c.logPrefixf("INFO", format, a...)
+}
+
+func (c *Client) logErrorf(format string, a ...interface{}) {
+	c.logPrefixf("ERROR", format, a...)
 }
 
 func sendToAll(je JsonEvent) {
