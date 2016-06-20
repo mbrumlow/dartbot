@@ -15,6 +15,8 @@ function createWebSocket() {
 
 		// Attempt to log in using cookie information. 
 
+		clearChatLog();
+
 		username = getCookie("username"); 
 		var authToken = getCookie("authToken");
 		authToken = authToken.replace(/['"]+/g, '')
@@ -207,6 +209,13 @@ document.onkeydown = function checkKey(e) {
 			}
 			break; 
 		default: 
+	}
+}
+
+function clearChatLog() {
+	var node = document.getElementById("chatLog");
+	while (node.firstChild) {
+    	node.removeChild(node.firstChild);
 	}
 }
 
