@@ -5,9 +5,7 @@ var username = "";
 var authenticated = false;
 var dir = 0; 
 
-document.onkeydown = checkKey;
-createWebSocket(); 
-
+document.onload = createWebSocket(); 
 
 function createWebSocket() {
 
@@ -61,7 +59,6 @@ function createWebSocket() {
 				authBadName(); 
 				break;
 
-
 				// ACTIONS
 
 			case 32: // TrackPower
@@ -77,14 +74,11 @@ function createWebSocket() {
 	};
 
 	ws.onclose = function() {
-
 		setTimeout(function() {
 			createWebSocket()
 		}, 3);
-
 	};  
 }
-
 
 function autoAuth() {
     document.getElementById('authScreen').className = 'hidden';    
@@ -156,51 +150,65 @@ function authBadName() {
     authenticated = false;
 }
 
-function checkKey(e) {
+var chatEnabled = false; 
+function chatSelected(selected) {
+	console.log("Chat enabled", selected); 
+	chatEnabled = selected
+}
+
+document.onkeydown = function checkKey(e) {
 
 	e = e || window.event;
 
 	switch(e.keyCode) {
 		case 38:
-			e.preventDefault();
-			if(dir === -1 ) {
-				fullStop(); 
-			} else { 
-				fullForward();
+			if(!chatEnabled) {
+				e.preventDefault();
+				if(dir === -1 ) {
+					fullStop(); 
+				} else { 
+					fullForward();
+				}
 			}
 			break;  
 		case 40: 
-			e.preventDefault();
-			if( dir === 1 ) { 
-				fullStop();
-			} else { 
-				fullReverse(); 
+			if(!chatEnabled) { 
+				e.preventDefault();
+				if( dir === 1 ) { 
+					fullStop();
+				} else { 
+					fullReverse(); 
+				}
 			}
 			break; 
-		case 37: 
-			e.preventDefault();
-			if( dir == 2 ) {
-				fullStop();
-			} else { 
-				rotateLeft();
+		case 37:
+			if(!chatEnabled) { 
+				e.preventDefault();
+				if( dir == 2 ) {
+					fullStop();
+				} else { 
+					rotateLeft();
+				}
 			}
 			break;
-		case 39: 
-			e.preventDefault();
-			if( dir == 3 ) { 
-				fullStop();
-			} else { 
-				rotateRight();
+		case 39:
+			if(!chatEnabled) {  
+				e.preventDefault();
+				if( dir == 3 ) { 
+					fullStop();
+				} else { 
+					rotateRight();
+				}
 			}
 			break;
-		case 13: 
-			sendChat(); 
+		case 13:
+			if(chatEnabled) {  
+				sendChat(); 
+			}
 			break; 
 		default: 
 	}
-
 }
-
 
 function handleEvent(je, ev, type) {
 
@@ -221,6 +229,7 @@ function handleEvent(je, ev, type) {
 	} else {
 		insertEventSlow(je, ev, type) 	
 	}
+
 } 
 
 function insertEventSlow(je, ev, type) {
@@ -258,6 +267,7 @@ function insertEventFast(je, ev, type) {
 	
 	elem.appendChild(node); 
 	elem.scrollTop = elem.scrollHeight;
+
 }
 
 function login() {
@@ -265,13 +275,10 @@ function login() {
     username = document.getElementById("nameInput").value; 
     password = document.getElementById("passInput").value; 
 
-
     ws.send(JSON.stringify({
         Name: username,
         Auth: password,
     }));
-
-
 
     return false;
 
@@ -375,7 +382,6 @@ function toggleLinked() {
         b.innerHTML = "&hArr;" 
     }
 }
-
 
 function sendChat() {
     
