@@ -48,6 +48,9 @@ func (t *Tank) Stop() error {
 	t.breakA.DigitalWrite(1)
 	t.breakB.DigitalWrite(1)
 
+	t.pwmA.PwmWrite(0)
+	t.pwmB.PwmWrite(0)
+
 	return nil
 }
 
