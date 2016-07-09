@@ -2,15 +2,16 @@ package tank
 
 import (
 	"log"
+	"sync"
 
 	"github.com/hybridgroup/gobot/platforms/gpio"
 )
 
 type Tank struct {
+	mu     sync.Mutex
 	pwmA   *gpio.DirectPinDriver
 	breakA *gpio.DirectPinDriver
 	dirA   *gpio.DirectPinDriver
-
 	pwmB   *gpio.DirectPinDriver
 	breakB *gpio.DirectPinDriver
 	dirB   *gpio.DirectPinDriver
@@ -39,6 +40,9 @@ func NewTank(pwmA, breakA, dirA, pwmB, breakB, dirB *gpio.DirectPinDriver,
 
 func (t *Tank) Stop() error {
 
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	log.Printf("Stop.\n")
 
 	t.breakA.DigitalWrite(1)
@@ -48,6 +52,9 @@ func (t *Tank) Stop() error {
 }
 
 func (t *Tank) Right() error {
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	log.Printf("Right.\n")
 
@@ -65,6 +72,9 @@ func (t *Tank) Right() error {
 
 func (t *Tank) Left() error {
 
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	log.Printf("Left.\n")
 
 	t.breakA.DigitalWrite(0)
@@ -81,6 +91,9 @@ func (t *Tank) Left() error {
 
 func (t *Tank) Forward() error {
 
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	log.Printf("Forward.\n")
 
 	t.breakA.DigitalWrite(0)
@@ -96,6 +109,9 @@ func (t *Tank) Forward() error {
 }
 
 func (t *Tank) Backward() error {
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	log.Printf("Backward.\n")
 
