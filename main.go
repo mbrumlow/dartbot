@@ -9,7 +9,7 @@ import (
 	"github.com/hybridgroup/gobot/platforms/gpio"
 	"github.com/hybridgroup/gobot/platforms/intel-iot/edison"
 	"github.com/mbrumlow/dartbot/tank"
-	"github.com/mbrumlow/webbot"
+	"github.com/mbrumlow/webbot/webbot"
 )
 
 var host = flag.String("host", "ws://localhost:8080/robot", "Robot Web Control (rwc) host.")
